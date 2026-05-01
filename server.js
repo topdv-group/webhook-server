@@ -1,3 +1,6 @@
+//this was the most stable file that finaly managed to send the transaction
+//into firebase database and once all fails i will return to this for revival.
+
 const express = require('express');
 const admin = require('firebase-admin');
 
