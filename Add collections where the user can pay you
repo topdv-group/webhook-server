@@ -1,0 +1,245 @@
+// ========================
+// IMPROVED PAYMENT ROUTES - FOR COLLECTING PAYMENTS FROM USERS
+// ========================
+
+// PAYMENT REQUEST (Creates a payment link for user to pay)
+app.post('/api/request-payment', async (req, res) => {
+    try {
+        const { userId, amount, description } = req.body;
+
+        if (!userId || !amount || amount <= 0) {
+            return res.status(400).json({ error: 'userId and positive amount required' });
+        }
+
+        const userSnap = await db.ref(`users/${userId}`).once('value');
+
+        if (!userSnap.exists()) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const user = userSnap.val();
+        const referenceId = generateReferenceId();
+        
+        // Create payment request object
+        const paymentRequest = {
+            userId,
+            amount: Number(amount),
+            status: 'PENDING',
+            referenceId,
+            description: description || `Payment for ${user.fullName}`,
+            createdAt: Date.now(),
+            expiresAt: Date.now() + (24 * 60 * 60 * 1000), // 24 hours expiry
+            userPhone: user.phone,
+            userName: user.fullName
+        };
+
+        // Store payment request
+        const paymentRequestId = db.ref('paymentRequests').push().key;
+        await db.ref(`paymentRequests/${paymentRequestId}`).set(paymentRequest);
+
+        // Generate a payment link (you can customize this based on your payment provider)
+        const paymentLink = `https://webhook-server-production.up.railway.app/pay/${paymentRequestId}`;
+        
+        // If you have a payment provider like Pawapay, MTN MoMo, etc.
+        let providerResponse = null;
+        
+        if (PAYMENT_API_URL && PAYMENT_API_KEY) {
+            try {
+                // Attempt to create payment request with provider
+                providerResponse = await axios.post(PAYMENT_API_URL, {
+                    amount: amount,
+                    currency: "RWF",
+                    phone: user.phone,
+                    externalId: referenceId,
+                    callbackUrl: `https://webhook-server-production.up.railway.app/api/webhook`,
+                    description: description || `Payment for services`
+                }, {
+                    headers: {
+                        'Authorization': `Bearer ${PAYMENT_API_KEY}`,
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 10000
+                });
+                
+                paymentRequest.providerResponse = providerResponse.data;
+                paymentRequest.providerStatus = 'initiated';
+                await db.ref(`paymentRequests/${paymentRequestId}`).update({
+                    providerResponse: providerResponse.data,
+                    providerStatus: 'initiated'
+                });
+                
+            } catch (providerError) {
+                console.log('Provider API error (continuing with local payment request):', providerError.message);
+                // Continue with local payment request even if provider fails
+            }
+        }
+        
+        res.json({
+            success: true,
+            paymentRequestId,
+            referenceId,
+            amount: amount,
+            paymentLink: paymentLink,
+            userPhone: user.phone,
+            instructions: `Ask user to send ${amount} RWF to your mobile money and provide reference ID: ${referenceId}`,
+            qrData: referenceId, // For QR code generation
+            expiresAt: paymentRequest.expiresAt
+        });
+
+    } catch (error) {
+        console.error('Payment request error:', error);
+        res.status(500).json({ error: 'Internal server error', details: error.message });
+    }
+});
+
+// GET PAYMENT REQUEST STATUS
+app.get('/api/payment-request/:requestId', async (req, res) => {
+    try {
+        const { requestId } = req.params;
+        const snapshot = await db.ref(`paymentRequests/${requestId}`).once('value');
+        
+        if (!snapshot.exists()) {
+            return res.status(404).json({ error: 'Payment request not found' });
+        }
+        
+        res.json({
+            success: true,
+            paymentRequest: snapshot.val()
+        });
+        
+    } catch (error) {
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// CONFIRM PAYMENT (Admin marks payment as received)
+app.post('/api/confirm-payment', async (req, res) => {
+    try {
+        const { paymentRequestId, transactionId, paymentMethod } = req.body;
+        
+        if (!paymentRequestId) {
+            return res.status(400).json({ error: 'paymentRequestId required' });
+        }
+        
+        const snapshot = await db.ref(`paymentRequests/${paymentRequestId}`).once('value');
+        
+        if (!snapshot.exists()) {
+            return res.status(404).json({ error: 'Payment request not found' });
+        }
+        
+        const paymentRequest = snapshot.val();
+        
+        if (paymentRequest.status === 'COMPLETED') {
+            return res.status(400).json({ error: 'Payment already confirmed' });
+        }
+        
+        // Update payment request status
+        await db.ref(`paymentRequests/${paymentRequestId}`).update({
+            status: 'COMPLETED',
+            transactionId: transactionId || `MANUAL_${Date.now()}`,
+            paymentMethod: paymentMethod || 'mobile_money',
+            confirmedAt: Date.now(),
+            confirmedBy: 'admin'
+        });
+        
+        // Update user's payment status
+        await db.ref(`users/${paymentRequest.userId}`).update({
+            paymentStatus: 'PAID',
+            lastPaidAt: Date.now(),
+            lastPaymentAmount: paymentRequest.amount,
+            lastPaymentDate: Date.now()
+        });
+        
+        // Record the payment
+        const paymentId = db.ref('payments').push().key;
+        await db.ref(`payments/${paymentId}`).set({
+            userId: paymentRequest.userId,
+            amount: paymentRequest.amount,
+            status: 'SUCCESS',
+            referenceId: paymentRequest.referenceId,
+            transactionId: transactionId || `MANUAL_${Date.now()}`,
+            paymentRequestId,
+            confirmedAt: Date.now(),
+            createdAt: Date.now()
+        });
+        
+        res.json({
+            success: true,
+            message: 'Payment confirmed successfully',
+            userId: paymentRequest.userId,
+            amount: paymentRequest.amount
+        });
+        
+    } catch (error) {
+        console.error('Confirm payment error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// CREATE PAYMENT LINK FOR USER TO PAY (Simple version)
+app.post('/api/create-payment-link', async (req, res) => {
+    try {
+        const { phone, amount } = req.body;
+        
+        if (!phone || !amount || amount <= 0) {
+            return res.status(400).json({ error: 'phone and positive amount required' });
+        }
+        
+        // Find user by phone
+        const snapshot = await db.ref('users')
+            .orderByChild('phone')
+            .equalTo(phone)
+            .once('value');
+        
+        if (!snapshot.exists()) {
+            return res.status(404).json({ error: 'User not found with this phone number' });
+        }
+        
+        const userId = Object.keys(snapshot.val())[0];
+        const user = snapshot.val()[userId];
+        const referenceId = generateReferenceId();
+        
+        // Store payment request
+        const paymentRequest = {
+            userId,
+            amount: Number(amount),
+            status: 'PENDING',
+            referenceId,
+            createdAt: Date.now(),
+            userPhone: phone,
+            userName: user.fullName
+        };
+        
+        const paymentRequestId = db.ref('paymentRequests').push().key;
+        await db.ref(`paymentRequests/${paymentRequestId}`).set(paymentRequest);
+        
+        // Return payment instructions
+        res.json({
+            success: true,
+            paymentRequestId,
+            referenceId,
+            amount: amount,
+            user: {
+                name: user.fullName,
+                phone: phone
+            },
+            instructions: {
+                step1: `User ${user.fullName} (${phone}) needs to pay ${amount} RWF`,
+                step2: `Reference ID: ${referenceId}`,
+                step3: `After payment, use /api/confirm-payment with paymentRequestId: ${paymentRequestId} to confirm`
+            }
+        });
+        
+    } catch (error) {
+        console.error('Create payment link error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// DEPRECATED: Original pay-user (keep for reference but mark as deprecated)
+app.post('/api/pay-user', async (req, res) => {
+    res.status(501).json({ 
+        error: 'This endpoint is deprecated. Use /api/request-payment or /api/create-payment-link instead',
+        message: 'These create a payment request that the user can fulfill'
+    });
+});
