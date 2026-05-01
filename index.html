@@ -4,27 +4,32 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>User Registration Portal</title>
+
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body {
-            font-family: system-ui, -apple-system, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: system-ui, sans-serif;
+            background: linear-gradient(135deg, #667eea, #764ba2);
             min-height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
             padding: 20px;
         }
+
         .container {
             background: white;
-            border-radius: 20px;
             padding: 40px;
-            max-width: 500px;
+            border-radius: 20px;
             width: 100%;
+            max-width: 500px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
         }
-        h1 { margin-bottom: 10px; color: #333; }
-        .sub { color: #666; margin-bottom: 30px; }
+
+        h1 { color: #333; margin-bottom: 10px; }
+        .sub { color: #666; margin-bottom: 25px; }
+
         input {
             width: 100%;
             padding: 12px;
@@ -33,6 +38,7 @@
             border-radius: 8px;
             font-size: 16px;
         }
+
         button {
             width: 100%;
             padding: 12px;
@@ -43,10 +49,12 @@
             font-size: 16px;
             font-weight: bold;
             cursor: pointer;
-            margin-top: 20px;
+            margin-top: 15px;
         }
+
         button:hover { background: #5a67d8; }
-        button:disabled { opacity: 0.6; cursor: not-allowed; }
+        button:disabled { opacity: 0.6; }
+
         .response {
             margin-top: 20px;
             padding: 15px;
@@ -54,127 +62,103 @@
             border-radius: 8px;
             display: none;
         }
+
         pre {
             background: #2d3748;
             color: #e2e8f0;
             padding: 10px;
             border-radius: 6px;
-            overflow-x: auto;
             font-size: 12px;
-            margin-top: 8px;
+            overflow-x: auto;
         }
-        .error-message {
-            color: #e53e3e;
-            font-size: 14px;
+
+        .error {
+            color: red;
             margin-top: 10px;
             display: none;
         }
-        .success-message {
-            color: #38a169;
-            font-size: 14px;
+
+        .success {
+            color: green;
             margin-top: 10px;
             display: none;
         }
     </style>
 </head>
+
 <body>
+
 <div class="container">
     <h1>🚀 User Registration</h1>
-    <p class="sub">Submit your information to the webhook server</p>
-    
+    <p class="sub">Submit data to backend (single domain)</p>
+
     <form id="userForm">
-        <input type="text" id="fullName" placeholder="Full Name" value="erice" required>
-        <input type="tel" id="phone" placeholder="Phone Number" value="+250778192446" required>
+        <input type="text" id="fullName" placeholder="Full Name" required>
+        <input type="tel" id="phone" placeholder="Phone Number" required>
         <input type="email" id="email" placeholder="Email (optional)">
-        <input type="text" id="role" placeholder="Role" value="employee">
-        <button type="submit">📡 Submit to Server</button>
+        <button type="submit">Submit</button>
     </form>
-    
+
+    <div id="success" class="success"></div>
+    <div id="error" class="error"></div>
+
     <div id="response" class="response">
-        <strong>Response:</strong>
-        <pre id="responseData"></pre>
+        <pre id="output"></pre>
     </div>
-    <div id="errorMsg" class="error-message"></div>
-    <div id="successMsg" class="success-message"></div>
 </div>
 
 <script>
-    // OPTION 1: Using free CORS proxy (easiest)
-    // const API_URL = 'https://cors-anywhere.herokuapp.com/https://webhook-server-production.up.railway.app/users';
-    
-    // OPTION 2: Using your own proxy service (recommended for production)
-    // Replace with your actual proxy URL after deploying
-    const API_URL = 'https://your-proxy-service.up.railway.app/proxy/users';
-    
-    // OPTION 3: Direct call (will fail with CORS error - shows why we need proxy)
-    // const API_URL = 'https://webhook-server-production.up.railway.app/users';
-    
-    document.getElementById('userForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        
-        const payload = {
-            fullName: document.getElementById('fullName').value,
-            phone: document.getElementById('phone').value,
-            email: document.getElementById('email').value || null,
-            role: document.getElementById('role').value || 'employee'
-        };
-        
-        const button = e.target.querySelector('button');
-        const originalText = button.textContent;
-        button.textContent = '⏳ Sending...';
-        button.disabled = true;
-        
-        // Hide previous messages
-        document.getElementById('response').style.display = 'none';
-        document.getElementById('errorMsg').style.display = 'none';
-        document.getElementById('successMsg').style.display = 'none';
-        
-        try {
-            console.log('Sending to:', API_URL);
-            console.log('Payload:', payload);
-            
-            const response = await fetch(API_URL, {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    // Some proxies need this
-                    'Origin': window.location.origin
-                },
-                body: JSON.stringify(payload)
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const data = await response.json();
-            
-            document.getElementById('response').style.display = 'block';
-            document.getElementById('responseData').textContent = JSON.stringify(data, null, 2);
-            
-            if (data.success) {
-                document.getElementById('successMsg').textContent = `✅ Success! User ID: ${data.userId} | Payment: ${data.paymentStatus || 'UNPAID'}`;
-                document.getElementById('successMsg').style.display = 'block';
-                // Clear error message if any
-                document.getElementById('errorMsg').style.display = 'none';
-            } else {
-                throw new Error('Server returned unsuccessful response');
-            }
-        } catch (error) {
-            console.error('Error:', error);
-            document.getElementById('errorMsg').textContent = `❌ Error: ${error.message}\n\nTip: Make sure you're using a CORS proxy or the backend has CORS enabled.`;
-            document.getElementById('errorMsg').style.display = 'block';
-            document.getElementById('response').style.display = 'block';
-            document.getElementById('responseData').textContent = `Error: ${error.message}\n\nIf you see CORS error, you need to:\n1. Use a CORS proxy (uncomment the first API_URL option), OR\n2. Deploy your own proxy service, OR\n3. Add CORS headers to the backend`;
-        } finally {
-            button.textContent = originalText;
-            button.disabled = false;
+const API_BASE = "/api"; // 🔥 SAME DOMAIN CALL
+
+document.getElementById("userForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const payload = {
+        fullName: document.getElementById("fullName").value,
+        phone: document.getElementById("phone").value,
+        email: document.getElementById("email").value || null
+    };
+
+    const btn = e.target.querySelector("button");
+    btn.disabled = true;
+    btn.innerText = "Sending...";
+
+    document.getElementById("error").style.display = "none";
+    document.getElementById("success").style.display = "none";
+    document.getElementById("response").style.display = "none";
+
+    try {
+        const res = await fetch(`${API_BASE}/users`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+            throw new Error(data.error || "Request failed");
         }
-    });
-    
-    // Add helpful console message
-    console.log('%c⚠️ CORS Notice', 'color: orange; font-size: 16px; font-weight: bold;');
-    console.log('If you see CORS errors, uncomment the proxy URL option in the JavaScript section.');
+
+        document.getElementById("success").innerText =
+            `✅ User created successfully! ID: ${data.userId}`;
+
+        document.getElementById("success").style.display = "block";
+        document.getElementById("response").style.display = "block";
+        document.getElementById("output").innerText =
+            JSON.stringify(data, null, 2);
+
+    } catch (err) {
+        document.getElementById("error").innerText = "❌ " + err.message;
+        document.getElementById("error").style.display = "block";
+    }
+
+    btn.disabled = false;
+    btn.innerText = "Submit";
+});
 </script>
+
 </body>
 </html>
