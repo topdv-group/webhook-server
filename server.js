@@ -1,3 +1,4 @@
+// server.js - Production Ready MVP
 const express = require('express');
 const admin = require('firebase-admin');
 const crypto = require('crypto');
@@ -5,7 +6,7 @@ const crypto = require('crypto');
 const app = express();
 
 // ========================
-// Firebase Initialization (FIXED FOR RAILWAY)
+// Firebase Initialization
 // ========================
 
 const serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
@@ -22,129 +23,57 @@ const db = admin.database();
 // ========================
 app.use(express.json());
 
+// Simple API Key Protection
+const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'change-me-in-production';
+
+function authAdmin(req, res, next) {
+    const apiKey = req.headers['x-api-key'];
+    if (!apiKey || apiKey !== ADMIN_API_KEY) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+    next();
+}
+
 // ========================
-// Helper Functions
+// Helpers
 // ========================
 
-/**
- * Generate unique reference ID
- */
 function generateReferenceId() {
-    return crypto.randomBytes(16).toString('hex');
-}
-
-/**
- * Generate unique batch ID
- */
-function generateBatchId() {
-    return 'batch_' + Date.now() + '_' + crypto.randomBytes(4).toString('hex');
-}
-
-/**
- * Create payment record
- */
-async function createPaymentRecord(userId, amount, referenceId, batchId = null, paymentType = 'single') {
-    const paymentId = db.ref('payments').push().key;
-    const paymentData = {
-        userId,
-        amount: Number(amount),
-        referenceId,
-        status: 'PENDING',
-        paymentType,
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-    };
-    
-    if (batchId) {
-        paymentData.batchId = batchId;
-    }
-    
-    await db.ref(`payments/${paymentId}`).set(paymentData);
-    
-    return {
-        paymentId,
-        ...paymentData
-    };
+    return 'PAY_' + Date.now() + '_' + crypto.randomBytes(8).toString('hex');
 }
 
 // ========================
-// Health check route
+// USER ROUTES (Admin only)
 // ========================
-app.get('/', (req, res) => {
-    res.send('Webhook server is running');
-});
 
-// ========================
-// TEST ROUTE
-// ========================
-app.get('/test-save', async (req, res) => {
+// POST /users - Register employee
+app.post('/users', authAdmin, async (req, res) => {
     try {
-        await db.ref('test').set({
-            message: "Railway test",
-            time: Date.now()
-        });
-
-        console.log("✅ Firebase write SUCCESS");
-        res.send("Saved to Firebase");
-    } catch (error) {
-        console.error("❌ Firebase error:", error);
-        res.status(500).send("Error");
-    }
-});
-
-// ========================
-// USER REGISTRATION SYSTEM
-// ========================
-
-/**
- * POST /users - Create a new user
- * Body: { fullName, phone }
- */
-app.post('/users', async (req, res) => {
-    try {
-        const { fullName, phone } = req.body;
+        const { fullName, phone, email } = req.body;
         
-        // Validation
-        if (!fullName || typeof fullName !== 'string' || fullName.trim().length === 0) {
-            return res.status(400).json({ 
-                error: 'fullName is required and must be a non-empty string' 
-            });
+        if (!fullName || !phone) {
+            return res.status(400).json({ error: 'fullName and phone required' });
         }
         
-        if (!phone || typeof phone !== 'string' || phone.trim().length === 0) {
-            return res.status(400).json({ 
-                error: 'phone is required and must be a non-empty string' 
-            });
+        // Check for duplicate phone
+        const existing = await db.ref('users').orderByChild('phone').equalTo(phone).once('value');
+        if (existing.exists()) {
+            return res.status(409).json({ error: 'Phone number already registered' });
         }
         
-        // Check if phone already exists
-        const existingUsers = await db.ref('users')
-            .orderByChild('phone')
-            .equalTo(phone.trim())
-            .once('value');
-        
-        if (existingUsers.exists()) {
-            return res.status(409).json({ 
-                error: 'User with this phone number already exists' 
-            });
-        }
-        
-        // Generate unique user ID
         const userId = db.ref('users').push().key;
-        
         const userData = {
             fullName: fullName.trim(),
             phone: phone.trim(),
-            createdAt: Date.now()
+            email: email || null,
+            role: 'employee',
+            createdAt: Date.now(),
+            paymentStatus: 'UNPAID',
+            lastPaidAt: null
         };
         
         await db.ref(`users/${userId}`).set(userData);
-        
-        res.status(201).json({
-            success: true,
-            userId,
-            ...userData
-        });
+        res.status(201).json({ success: true, userId, ...userData });
         
     } catch (error) {
         console.error('Error creating user:', error);
@@ -152,20 +81,12 @@ app.post('/users', async (req, res) => {
     }
 });
 
-/**
- * GET /users - Get all users
- */
-app.get('/users', async (req, res) => {
+// GET /users - Get all users
+app.get('/users', authAdmin, async (req, res) => {
     try {
         const snapshot = await db.ref('users').once('value');
         const users = snapshot.val() || {};
-        
-        res.json({
-            success: true,
-            count: Object.keys(users).length,
-            users
-        });
-        
+        res.json({ success: true, count: Object.keys(users).length, users });
     } catch (error) {
         console.error('Error fetching users:', error);
         res.status(500).json({ error: 'Internal server error' });
@@ -173,40 +94,43 @@ app.get('/users', async (req, res) => {
 });
 
 // ========================
-// SINGLE PAYMENT INITIATION
+// PAYMENT ROUTES (Admin only)
 // ========================
 
-/**
- * POST /pay-user - Create payment for a specific user
- * Body: { userId, amount }
- */
-app.post('/pay-user', async (req, res) => {
+// POST /pay-user - Single payment
+app.post('/pay-user', authAdmin, async (req, res) => {
     try {
         const { userId, amount } = req.body;
         
-        // Validation
-        if (!userId || typeof userId !== 'string') {
-            return res.status(400).json({ error: 'userId is required' });
-        }
-        
-        if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
-            return res.status(400).json({ error: 'amount must be a positive number' });
+        if (!userId || !amount || amount <= 0) {
+            return res.status(400).json({ error: 'userId and positive amount required' });
         }
         
         // Verify user exists
-        const userSnapshot = await db.ref(`users/${userId}`).once('value');
-        if (!userSnapshot.exists()) {
+        const userSnap = await db.ref(`users/${userId}`).once('value');
+        if (!userSnap.exists()) {
             return res.status(404).json({ error: 'User not found' });
         }
         
-        // Generate reference ID and create payment record
         const referenceId = generateReferenceId();
-        const paymentRecord = await createPaymentRecord(userId, amount, referenceId, null, 'single');
+        const paymentId = db.ref('payments').push().key;
+        const paymentData = {
+            userId,
+            amount: Number(amount),
+            status: 'PENDING',
+            referenceId,
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+        };
+        
+        await db.ref(`payments/${paymentId}`).set(paymentData);
         
         res.status(201).json({
             success: true,
-            message: 'Payment initiated successfully',
-            payment: paymentRecord
+            message: 'Payment initiated (PENDING)',
+            paymentId,
+            referenceId,
+            status: 'PENDING'
         });
         
     } catch (error) {
@@ -215,289 +139,189 @@ app.post('/pay-user', async (req, res) => {
     }
 });
 
-// ========================
-// BULK PAYMENT SYSTEM
-// ========================
-
-/**
- * POST /pay-all - Create payments for all users
- * Body: { amount }
- */
-app.post('/pay-all', async (req, res) => {
+// POST /pay-all - Bulk payment for all users
+app.post('/pay-all', authAdmin, async (req, res) => {
     try {
         const { amount } = req.body;
         
-        // Validation
-        if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
-            return res.status(400).json({ error: 'amount must be a positive number' });
+        if (!amount || amount <= 0) {
+            return res.status(400).json({ error: 'Positive amount required' });
         }
         
-        // Fetch all users
-        const usersSnapshot = await db.ref('users').once('value');
-        const users = usersSnapshot.val();
+        const usersSnap = await db.ref('users').once('value');
+        const users = usersSnap.val();
         
         if (!users || Object.keys(users).length === 0) {
-            return res.status(404).json({ error: 'No users found to process payments' });
+            return res.status(404).json({ error: 'No users found' });
         }
         
-        // Generate batch ID
-        const batchId = generateBatchId();
-        const userIds = Object.keys(users);
         const payments = [];
-        const errors = [];
+        const updates = {};
         
-        // Bulk payment record
-        const bulkPaymentRecord = {
-            batchId,
-            amount: Number(amount),
-            totalUsers: userIds.length,
-            status: 'PROCESSING',
-            createdAt: Date.now(),
-            updatedAt: Date.now()
-        };
-        
-        await db.ref(`payments/batches/${batchId}`).set(bulkPaymentRecord);
-        
-        // Loop through users and create payment entries
-        for (const userId of userIds) {
-            try {
-                const referenceId = generateReferenceId();
-                const paymentRecord = await createPaymentRecord(
-                    userId, 
-                    amount, 
-                    referenceId, 
-                    batchId, 
-                    'bulk'
-                );
-                
-                payments.push({
-                    userId,
-                    ...paymentRecord
-                });
-                
-            } catch (error) {
-                console.error(`Error creating payment for user ${userId}:`, error);
-                errors.push({
-                    userId,
-                    error: error.message
-                });
-            }
+        for (const userId of Object.keys(users)) {
+            const referenceId = generateReferenceId();
+            const paymentId = db.ref('payments').push().key;
+            const paymentData = {
+                userId,
+                amount: Number(amount),
+                status: 'PENDING',
+                referenceId,
+                createdAt: Date.now(),
+                updatedAt: Date.now()
+            };
+            updates[`payments/${paymentId}`] = paymentData;
+            payments.push({ paymentId, userId, referenceId });
         }
         
-        // Update bulk payment status
-        const finalStatus = errors.length === 0 ? 'COMPLETED' : 'PARTIAL';
-        await db.ref(`payments/batches/${batchId}`).update({
-            status: finalStatus,
-            successfulPayments: payments.length,
-            failedPayments: errors.length,
-            completedAt: Date.now(),
-            updatedAt: Date.now()
-        });
+        // Single update to Firebase (faster than loop)
+        await db.ref().update(updates);
         
         res.status(201).json({
             success: true,
-            message: 'Bulk payment processed',
-            batchId,
-            totalUsers: userIds.length,
-            successfulPayments: payments.length,
-            failedPayments: errors.length,
-            payments,
-            errors: errors.length > 0 ? errors : undefined
-        });
-        
-    } catch (error) {
-        console.error('Error processing bulk payment:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// ========================
-// ADDITIONAL UTILITY ENDPOINTS
-// ========================
-
-/**
- * GET /payments/user/:userId - Get all payments for a specific user
- */
-app.get('/payments/user/:userId', async (req, res) => {
-    try {
-        const { userId } = req.params;
-        
-        const paymentsSnapshot = await db.ref('payments')
-            .orderByChild('userId')
-            .equalTo(userId)
-            .once('value');
-        
-        const payments = paymentsSnapshot.val() || {};
-        
-        res.json({
-            success: true,
-            userId,
-            count: Object.keys(payments).length,
+            message: `Bulk payment initiated for ${payments.length} users (PENDING)`,
+            total: payments.length,
             payments
         });
         
     } catch (error) {
-        console.error('Error fetching user payments:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-/**
- * GET /payments/batch/:batchId - Get bulk payment details
- */
-app.get('/payments/batch/:batchId', async (req, res) => {
-    try {
-        const { batchId } = req.params;
-        
-        const batchSnapshot = await db.ref(`payments/batches/${batchId}`).once('value');
-        const batch = batchSnapshot.val();
-        
-        if (!batch) {
-            return res.status(404).json({ error: 'Batch not found' });
-        }
-        
-        // Get all payments in this batch
-        const paymentsSnapshot = await db.ref('payments')
-            .orderByChild('batchId')
-            .equalTo(batchId)
-            .once('value');
-        
-        const payments = paymentsSnapshot.val() || {};
-        
-        res.json({
-            success: true,
-            batch,
-            payments
-        });
-        
-    } catch (error) {
-        console.error('Error fetching batch:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-/**
- * GET /transactions/:reference - Get transaction by reference
- */
-app.get('/transactions/:reference', async (req, res) => {
-    try {
-        const { reference } = req.params;
-        
-        const transactionSnapshot = await db.ref(`transactions/${reference}`).once('value');
-        const transaction = transactionSnapshot.val();
-        
-        if (!transaction) {
-            return res.status(404).json({ error: 'Transaction not found' });
-        }
-        
-        res.json({
-            success: true,
-            reference,
-            transaction
-        });
-        
-    } catch (error) {
-        console.error('Error fetching transaction:', error);
+        console.error('Error in bulk payment:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
 
 // ========================
-// UNIFIED WEBHOOK ENDPOINT
+// STATS ENDPOINT (Admin only)
+// ========================
+
+app.get('/stats', authAdmin, async (req, res) => {
+    try {
+        const [usersSnap, paymentsSnap] = await Promise.all([
+            db.ref('users').once('value'),
+            db.ref('payments').once('value')
+        ]);
+        
+        const users = usersSnap.val() || {};
+        const payments = paymentsSnap.val() || {};
+        
+        let totalPaid = 0;
+        let totalPending = 0;
+        let totalFailed = 0;
+        let totalAmountSuccess = 0;
+        
+        for (const user of Object.values(users)) {
+            if (user.paymentStatus === 'PAID') totalPaid++;
+            else if (user.paymentStatus === 'PENDING') totalPending++;
+            else if (user.paymentStatus === 'FAILED') totalFailed++;
+        }
+        
+        for (const payment of Object.values(payments)) {
+            if (payment.status === 'SUCCESS') {
+                totalAmountSuccess += payment.amount;
+            }
+        }
+        
+        res.json({
+            success: true,
+            stats: {
+                totalUsers: Object.keys(users).length,
+                totalPaid,
+                totalPending,
+                totalFailed,
+                totalAmountPaid: totalAmountSuccess
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error fetching stats:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// ========================
+// WEBHOOK (Public)
+// Always returns 200, updates Firebase in background
 // ========================
 
 app.post('/webhook', async (req, res) => {
-    const event = req.body;
-
-    console.log('==============================');
-    console.log('🔔 WEBHOOK RECEIVED');
-    console.log(JSON.stringify(event, null, 2));
-    console.log('==============================');
-
-    // Extract data from webhook with multiple fallbacks
-    const status = 
-        event?.status ||
-        event?.data?.status ||
-        event?.payment_status ||
-        event?.transaction_status;
-
-    const reference = 
-        event?.reference ||
-        event?.data?.reference ||
-        event?.transaction_id ||
-        event?.id;
-
-    const phone = 
-        event?.phone ||
-        event?.msisdn ||
-        event?.customer_phone;
-
-    const amount = 
-        event?.amount ||
-        event?.value ||
-        event?.total_amount;
-
-    console.log('📌 Parsed status:', status);
-    console.log('📌 Parsed reference:', reference);
-
-    // Always return 200 to prevent webhook retries
-    if (!status || !reference) {
-        console.log('⚠️ Missing required fields in webhook');
-        return res.sendStatus(200);
+    // 1. Immediately respond to prevent timeout
+    res.status(200).json({ received: true });
+    
+    // 2. Process webhook asynchronously
+    const { referenceId, status, transactionId } = req.body;
+    
+    if (!referenceId || !status) {
+        console.warn('Webhook missing referenceId or status');
+        return;
     }
-
+    
+    if (status !== 'SUCCESS' && status !== 'FAILED') {
+        console.warn(`Webhook unknown status: ${status}`);
+        return;
+    }
+    
     try {
-        // Save transaction to Firebase
-        await db.ref('transactions/' + reference).set({
-            phone: phone || 'UNKNOWN',
-            amount: Number(amount) || 0,
-            status: status,
-            date: Date.now(),
-            rawWebhook: event
-        });
-
-        console.log('💾 Transaction saved:', reference);
+        // Find payment by referenceId
+        const paymentsSnap = await db.ref('payments')
+            .orderByChild('referenceId')
+            .equalTo(referenceId)
+            .once('value');
         
-        // Update corresponding payment record if referenceId matches
-        try {
-            const paymentsSnapshot = await db.ref('payments')
-                .orderByChild('referenceId')
-                .equalTo(reference)
-                .once('value');
-            
-            if (paymentsSnapshot.exists()) {
-                const payments = paymentsSnapshot.val();
-                const paymentId = Object.keys(payments)[0];
-                
-                await db.ref(`payments/${paymentId}`).update({
-                    status: status.toUpperCase(),
-                    transactionStatus: status,
-                    updatedAt: Date.now(),
-                    webhookReceivedAt: Date.now()
-                });
-                console.log('🔄 Updated payment record:', paymentId);
-            } else {
-                console.log('⚠️ No matching payment record found for reference:', reference);
-            }
-        } catch (paymentError) {
-            // Don't fail the webhook if payment update fails
-            console.error('Error updating payment record:', paymentError);
+        if (!paymentsSnap.exists()) {
+            console.warn(`No payment found for referenceId: ${referenceId}`);
+            // Store in transactions log for audit
+            await db.ref(`transactions/${referenceId}`).set({
+                referenceId,
+                status,
+                transactionId,
+                receivedAt: Date.now(),
+                error: 'No matching payment'
+            });
+            return;
         }
         
-        res.sendStatus(200);
-
+        const paymentId = Object.keys(paymentsSnap.val())[0];
+        const payment = paymentsSnap.val()[paymentId];
+        
+        // Update payment status
+        await db.ref(`payments/${paymentId}`).update({
+            status: status,
+            updatedAt: Date.now(),
+            transactionId: transactionId || null,
+            webhookReceivedAt: Date.now()
+        });
+        
+        // Update user paymentStatus
+        const userPaymentStatus = status === 'SUCCESS' ? 'PAID' : 'FAILED';
+        const userUpdate = { paymentStatus: userPaymentStatus };
+        if (status === 'SUCCESS') {
+            userUpdate.lastPaidAt = Date.now();
+        }
+        
+        await db.ref(`users/${payment.userId}`).update(userUpdate);
+        
+        console.log(`✅ Webhook processed: ${referenceId} -> ${status}`);
+        
     } catch (error) {
-        console.error('❌ Firebase error:', error);
-        // Always return 200 to prevent webhook retries even on error
-        res.sendStatus(200);
+        console.error('Webhook processing error:', error);
+        // Error logged but not sent to client (already responded)
     }
 });
 
 // ========================
-// Start server
+// Health check (public)
 // ========================
-const PORT = process.env.PORT || 3000;
 
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: Date.now() });
+});
+
+// ========================
+// Start Server
+// ========================
+
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`🔐 Admin API Key: ${ADMIN_API_KEY}`);
+    console.log(`📡 Webhook URL: http://localhost:${PORT}/webhook`);
 });
