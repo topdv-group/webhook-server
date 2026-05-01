@@ -32,7 +32,7 @@ const PAYMENT_API_KEY = process.env.PAYMENT_API_KEY;
 // FRONTEND (SINGLE DOMAIN)
 // ========================
 app.get("/", (req, res) => {
-    res.sendFile(path.resolve(__dirname, "index.html"));
+    res.sendFile(path.resolve(__dirname, "public"));
 });
 
 // ========================
