@@ -1,19 +1,20 @@
 const express = require('express');
 const admin = require('firebase-admin');
 
-const app = express(); // ✅ FIRST create app
+const app = express();
 
 // ========================
-// Firebase Initialization
+// Firebase Initialization (FIXED FOR RAILWAY)
 // ========================
-const serviceAccount = require('./serviceAccountKey.json');
+
+const serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
 
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
-    databaseURL: "https://tumirarwanda-add46-default-rtdb.europe-west1.firebasedatabase.app"
+    databaseURL: process.env.DB_URL
 });
 
-const db = admin.database(); // ✅ db defined BEFORE use
+const db = admin.database();
 
 // ========================
 // Middleware
@@ -28,7 +29,7 @@ app.get('/', (req, res) => {
 });
 
 // ========================
-// TEST ROUTE (correct position)
+// TEST ROUTE
 // ========================
 app.get('/test-save', async (req, res) => {
     try {
