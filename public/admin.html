@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Payment Management System</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+        }
+        body {
+            background: rgb(123, 166, 209);
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgb(255, 255, 255);
+            border-radius: 16px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.05);
+            padding: 24px;
+        }
+        h1 {
+            margin-top: 0;
+            margin-bottom: 24px;
+            font-size: 1.8rem;
+            color: #1e293b;
+        }
+        /* Stats cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+        .stat-card {
+            background: white;
+            border-radius: 16px;
+            padding: 16px 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border: 1px solid #e9ecef;
+            transition: all 0.2s;
+        }
+        .stat-card h3 {
+            margin: 0 0 8px 0;
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: #5b6e8c;
+            letter-spacing: 0.3px;
+        }
+        .stat-number {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin: 0;
+            line-height: 1.2;
+        }
+        .stat-blue { background: #eef2ff; border-left: 4px solid #3b82f6; }
+        .stat-green { background: #ecfdf5; border-left: 4px solid #10b981; }
+        .stat-orange { background: #fff7ed; border-left: 4px solid #f97316; }
+        .stat-red { background: #fef2f2; border-left: 4px solid #ef4444; }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 8px;
+            border-bottom: 2px solid #e2e8f0;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+        .tab-btn {
+            padding: 10px 24px;
+            font-size: 1rem;
+            font-weight: 500;
+            background: none;
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: #4b5563;
+        }
+        .tab-btn.active {
+            background: #3b82f6;
+            color: white;
+            box-shadow: 0 2px 6px rgba(59,130,246,0.2);
+        }
+        .tab-btn:not(.active):hover {
+            background: #f1f5f9;
+        }
+        /* Form */
+        .form-card {
+            background: #f9fafb;
+            border-radius: 20px;
+            padding: 20px;
+            margin-bottom: 32px;
+            border: 1px solid #eef2ff;
+        }
+        .form-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: flex-end;
+        }
+        .form-group {
+            flex: 1;
+            min-width: 160px;
+        }
+        label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 500;
+            margin-bottom: 4px;
+            color: #334155;
+        }
+        input, button {
+            border-radius: 12px;
+        }
+        input {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid #cbd5e1;
+            background: white;
+            font-size: 0.9rem;
+            transition: 0.2s;
+        }
+        input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
+        }
+        button {
+            padding: 10px 20px;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            font-weight: 500;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        button:hover {
+            background: #2563eb;
+            transform: translateY(-1px);
+        }
+        .btn-secondary {
+            background: #64748b;
+        }
+        .btn-secondary:hover { background: #475569; }
+        .btn-warning {
+            background: #f97316;
+        }
+        .btn-warning:hover { background: #ea580c; }
+        .btn-outline {
+            background: white;
+            border: 1px solid #cbd5e1;
+            color: #1e293b;
+        }
+        .btn-outline:hover {
+            background: #f1f5f9;
+            transform: none;
+        }
+        .action-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 20px;
+            align-items: center;
+        }
+        /* Table */
+        .table-wrapper {
+            overflow-x: auto;
+            border-radius: 16px;
+            border: 1px solid #e2e8f0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        th {
+            background: #f8fafc;
+            padding: 14px 12px;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #f0f2f5;
+            vertical-align: middle;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 30px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .status-paid { background: #dcfce7; color: #15803d; }
+        .status-pending { background: #fef9c3; color: #854d0e; }
+        .status-unpaid { background: #ffe4e2; color: #b91c1c; }
+        .status-failed { background: #fee2e2; color: #b91c1c; }
+        .checkbox-col {
+            width: 40px;
+            text-align: center;
+        }
+        .loading-overlay {
+            text-align: center;
+            padding: 40px;
+            color: #5b6e8c;
+        }
+        .toast-msg {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #1e293b;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 40px;
+            font-size: 0.9rem;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            transition: 0.2s;
+        }
+        .flex-between {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .schedule-panel {
+            background: white;
+            border-radius: 20px;
+            padding: 20px;
+            max-width: 500px;
+            margin-top: 20px;
+            border: 1px solid #e2e8f0;
+        }
+        @media (max-width: 700px) {
+            .container { padding: 16px; }
+            .stat-number { font-size: 1.6rem; }
+            .form-row { flex-direction: column; }
+            .action-bar { flex-direction: column; align-items: stretch; }
+        }
+    </style>
+</head>
+<body>
+<div class="container" id="app">
+    <h1>💰 Payment Management System</h1>
+
+    <!-- stats cards -->
+    <div class="stats-grid" id="statsContainer">
+        <div class="stat-card stat-blue"><h3>Total Users</h3><div class="stat-number" id="statTotalUsers">0</div></div>
+        <div class="stat-card stat-green"><h3>Paid</h3><div class="stat-number" id="statPaid">0</div></div>
+        <div class="stat-card stat-orange"><h3>Pending</h3><div class="stat-number" id="statPending">0</div></div>
+        <div class="stat-card stat-red"><h3>Failed</h3><div class="stat-number" id="statFailed">0</div></div>
+        <div class="stat-card"><h3>💰 Total Paid (sum)</h3><div class="stat-number" id="statAmountSum">0</div></div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+        <button class="tab-btn active" data-tab="users">👥 Users</button>
+        <button class="tab-btn" data-tab="payments">📋 Payments</button>
+        <button class="tab-btn" data-tab="schedule">📅 Schedule</button>
+    </div>
+
+    <!-- Users Tab Content -->
+    <div id="usersTab" class="tab-content">
+        <div class="form-card">
+            <h3 style="margin-top:0;">➕ Add New User</h3>
+            <form id="addUserForm">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Full Name *</label>
+                        <input type="text" id="userFullName" placeholder="John Doe" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Phone *</label>
+                        <input type="tel" id="userPhone" placeholder="+1234567890" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Email (optional)</label>
+                        <input type="email" id="userEmail" placeholder="john@example.com">
+                    </div>
+                    <div style="display: flex; align-items: flex-end;">
+                        <button type="submit">Add User</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <div class="action-bar">
+            <button id="payAllBtn" class="btn-warning">💰 Pay All Users</button>
+            <button id="paySelectedBtn" class="btn-secondary">✅ Pay Selected</button>
+            <button id="exportCsvBtn" class="btn-outline">📎 Export CSV</button>
+            <span style="margin-left: auto; font-size:0.8rem; color:#5b6e8c;" id="selectedCount">0 selected</span>
+        </div>
+
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr><th class="checkbox-col"><input type="checkbox" id="selectAllCheckbox"></th>
+                    <th>Full Name</th>
+                    <th>Phone</th>
+                    <th>Email</th>
+                    <th>Payment Status</th>
+                    <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="usersTableBody">
+                    <tr><td colspan="6" style="text-align:center;">Loading users...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Payments Tab -->
+    <div id="paymentsTab" class="tab-content" style="display:none;">
+        <div style="background:#f9fafb; border-radius:20px; padding:40px; text-align:center; color:#4b5563;">
+            📌 Payment history / logs will appear here. <br>
+            Use "Export CSV" to download full payment records.
+        </div>
+    </div>
+
+    <!-- Schedule Tab -->
+    <div id="scheduleTab" class="tab-content" style="display:none;">
+        <div class="schedule-panel">
+            <h3>⏰ Schedule Payment for Selected Users</h3>
+            <div class="form-group" style="margin-bottom: 20px;">
+                <label>Select Date & Time</label>
+                <input type="datetime-local" id="scheduleDateTime" style="width:100%;">
+            </div>
+            <div class="flex-between">
+                <span><strong>Selected users:</strong> <span id="scheduleSelectedCount">0</span></span>
+                <button id="schedulePaymentBtn" style="background:#8b5cf6;">Schedule Payment</button>
+            </div>
+            <p style="font-size:0.75rem; margin-top: 20px; color:#6c757d;">⚠️ Note: amount will be asked before scheduling.</p>
+        </div>
+    </div>
+</div>
+
+<script src="scripts.js"></script>
+</body>
+</html>
