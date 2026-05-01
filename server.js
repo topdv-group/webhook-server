@@ -1,4 +1,4 @@
-// server.js - SINGLE DOMAIN PRODUCTION VERSION
+// server.js - SINGLE DOMAIN PRODUCTION VERSION (PUBLIC FOLDER)
 
 const express = require('express');
 const admin = require('firebase-admin');
@@ -29,10 +29,15 @@ const PAYMENT_API_URL = process.env.PAYMENT_BASE_URL;
 const PAYMENT_API_KEY = process.env.PAYMENT_API_KEY;
 
 // ========================
-// FRONTEND (SINGLE DOMAIN)
+// FRONTEND (PUBLIC FOLDER FIX)
 // ========================
+
+// 🔥 Serve static frontend files (index.html, scripts.js, css, etc.)
+app.use(express.static(path.join(__dirname, "public")));
+
+// 🔥 Root route (optional but clean)
 app.get("/", (req, res) => {
-    res.sendFile(path.resolve(__dirname, "public"));
+    res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 // ========================
@@ -43,7 +48,7 @@ function generateReferenceId() {
 }
 
 // ========================
-// API ROUTES (BACKEND)
+// API ROUTES
 // ========================
 
 // CREATE USER
@@ -255,7 +260,7 @@ app.post('/api/webhook', async (req, res) => {
     }
 });
 
-// HEALTH CHECK
+// HEALTH
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: Date.now() });
 });
@@ -267,5 +272,5 @@ const PORT = process.env.PORT || 8080;
 
 app.listen(PORT, () => {
     console.log("🚀 Server running on port", PORT);
-    console.log("🌐 Single domain mode enabled");
+    console.log("🌐 Public folder enabled (single domain)");
 });
