@@ -1,7 +1,7 @@
 const express = require('express');
 const admin = require('firebase-admin');
 
-const app = express();
+const app = express(); // ✅ FIRST create app
 
 // ========================
 // Firebase Initialization
@@ -13,7 +13,7 @@ admin.initializeApp({
     databaseURL: "https://tumirarwanda-add46-default-rtdb.europe-west1.firebasedatabase.app"
 });
 
-const db = admin.database();
+const db = admin.database(); // ✅ db defined BEFORE use
 
 // ========================
 // Middleware
@@ -28,6 +28,24 @@ app.get('/', (req, res) => {
 });
 
 // ========================
+// TEST ROUTE (correct position)
+// ========================
+app.get('/test-save', async (req, res) => {
+    try {
+        await db.ref('test').set({
+            message: "Railway test",
+            time: Date.now()
+        });
+
+        console.log("✅ Firebase write SUCCESS");
+        res.send("Saved to Firebase");
+    } catch (error) {
+        console.error("❌ Firebase error:", error);
+        res.status(500).send("Error");
+    }
+});
+
+// ========================
 // Webhook endpoint
 // ========================
 app.post('/webhook', async (req, res) => {
@@ -38,7 +56,6 @@ app.post('/webhook', async (req, res) => {
     console.log(JSON.stringify(event, null, 2));
     console.log('==============================');
 
-    // Flexible parsing
     const status =
         event?.status ||
         event?.data?.status ||
@@ -63,35 +80,21 @@ app.post('/webhook', async (req, res) => {
 
     console.log('📌 Parsed status:', status);
     console.log('📌 Parsed reference:', reference);
-    console.log('📌 Parsed phone:', phone);
-    console.log('📌 Parsed amount:', amount);
 
-    // Safety check
     if (!status || !reference) {
         console.log('⚠️ Missing required fields');
         return res.sendStatus(200);
     }
 
     try {
-        // Save transaction in Realtime Database
         await db.ref('transactions/' + reference).set({
             phone: phone || 'UNKNOWN',
-            amount: amount || 0,
+            amount: Number(amount) || 0,
             status: status,
             date: Date.now()
         });
 
         console.log('💾 Transaction saved:', reference);
-
-        // Business logic
-        if (status === 'SUCCESS' || status === 'SUCCESSFUL' || status === 'completed') {
-            console.log(`✅ Payment SUCCESS: ${reference}`);
-        } else if (status === 'FAILED' || status === 'cancelled') {
-            console.log(`❌ Payment FAILED: ${reference}`);
-        } else {
-            console.log(`⚠️ Unknown status: ${status}`);
-        }
-
         res.sendStatus(200);
 
     } catch (error) {
