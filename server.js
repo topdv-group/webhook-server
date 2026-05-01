@@ -29,13 +29,10 @@ const PAYMENT_API_URL = process.env.PAYMENT_BASE_URL;
 const PAYMENT_API_KEY = process.env.PAYMENT_API_KEY;
 
 // ========================
-// FRONTEND (PUBLIC FOLDER FIX)
+// FRONTEND (PUBLIC FOLDER)
 // ========================
-
-// 🔥 Serve static frontend files (index.html, scripts.js, css, etc.)
 app.use(express.static(path.join(__dirname, "public")));
 
-// 🔥 Root route (optional but clean)
 app.get("/", (req, res) => {
     res.sendFile(path.join(__dirname, "public", "index.html"));
 });
@@ -48,11 +45,14 @@ function generateReferenceId() {
 }
 
 // ========================
-// API ROUTES
+// ROUTER (THIS IS WHAT YOU ASKED FOR)
 // ========================
+const router = express.Router();
 
-// CREATE USER
-app.post('/api/users', async (req, res) => {
+// ========================
+// USERS
+// ========================
+router.post('/users', async (req, res) => {
     try {
         const { fullName, phone, email } = req.body;
 
@@ -90,13 +90,11 @@ app.post('/api/users', async (req, res) => {
         });
 
     } catch (error) {
-        console.error(error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
 
-// GET USERS
-app.get('/api/users', async (req, res) => {
+router.get('/users', async (req, res) => {
     try {
         const snapshot = await db.ref('users').once('value');
         const users = snapshot.val() || {};
@@ -112,8 +110,10 @@ app.get('/api/users', async (req, res) => {
     }
 });
 
+// ========================
 // PAYMENT
-app.post('/api/pay-user', async (req, res) => {
+// ========================
+router.post('/pay-user', async (req, res) => {
     try {
         const { userId, amount } = req.body;
 
@@ -130,27 +130,17 @@ app.post('/api/pay-user', async (req, res) => {
         const user = userSnap.val();
         const referenceId = generateReferenceId();
 
-        let apiResponse;
-
-        try {
-            apiResponse = await axios.post(PAYMENT_API_URL, {
-                amount,
-                currency: "RWF",
-                customerPhone: user.phone,
-                externalId: referenceId
-            }, {
-                headers: {
-                    Authorization: `Bearer ${PAYMENT_API_KEY}`,
-                    "Content-Type": "application/json"
-                }
-            });
-
-        } catch (apiError) {
-            return res.status(500).json({
-                error: 'Payment request failed',
-                details: apiError.response?.data || apiError.message
-            });
-        }
+        const apiResponse = await axios.post(PAYMENT_API_URL, {
+            amount,
+            currency: "RWF",
+            customerPhone: user.phone,
+            externalId: referenceId
+        }, {
+            headers: {
+                Authorization: `Bearer ${PAYMENT_API_KEY}`,
+                "Content-Type": "application/json"
+            }
+        });
 
         const paymentId = db.ref('payments').push().key;
 
@@ -172,13 +162,17 @@ app.post('/api/pay-user', async (req, res) => {
         });
 
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({
+            error: 'Payment request failed',
+            details: error.response?.data || error.message
+        });
     }
 });
 
+// ========================
 // STATS
-app.get('/api/stats', async (req, res) => {
+// ========================
+router.get('/stats', async (req, res) => {
     try {
         const [usersSnap, paymentsSnap] = await Promise.all([
             db.ref('users').once('value'),
@@ -221,8 +215,10 @@ app.get('/api/stats', async (req, res) => {
     }
 });
 
+// ========================
 // WEBHOOK
-app.post('/api/webhook', async (req, res) => {
+// ========================
+router.post('/webhook', async (req, res) => {
     res.status(200).json({ received: true });
 
     const { referenceId, status, transactionId } = req.body;
@@ -260,10 +256,17 @@ app.post('/api/webhook', async (req, res) => {
     }
 });
 
+// ========================
 // HEALTH
-app.get('/api/health', (req, res) => {
+// ========================
+router.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: Date.now() });
 });
+
+// ========================
+// APPLY ROUTER
+// ========================
+app.use('/api', router);
 
 // ========================
 // START SERVER
@@ -272,5 +275,5 @@ const PORT = process.env.PORT || 8080;
 
 app.listen(PORT, () => {
     console.log("🚀 Server running on port", PORT);
-    console.log("🌐 Public folder enabled (single domain)");
+    console.log("🌐 Public folder + API router enabled");
 });
